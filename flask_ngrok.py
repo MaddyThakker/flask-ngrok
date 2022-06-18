@@ -9,6 +9,8 @@ import time
 import zipfile
 from pathlib import Path
 from threading import Timer
+from dotenv import load_dotenv
+load_dotenv()
 
 import requests
 
@@ -26,13 +28,24 @@ def _get_command():
     return command
 
 
-def _run_ngrok(port):
+def _run_ngrok(port, subdomain = None):
     command = _get_command()
     ngrok_path = str(Path(tempfile.gettempdir(), "ngrok"))
     _download_ngrok(ngrok_path)
+    token = os.environ.get('NGROK_AUTH_TOKEN')
     executable = str(Path(ngrok_path, command))
     os.chmod(executable, 0o777)
-    ngrok = subprocess.Popen([executable, 'http', str(port)])
+
+    popen_args = [executable, 'http']
+    if subdomain is not None:
+        popen_args.append('-subdomain=' + subdomain)
+    popen_args.append(str(port))
+
+    if token:
+        os.system('cd /tmp/ngrok;./ngrok authtoken {}'.format(token))
+
+    ngrok = subprocess.Popen(popen_args)
+
     atexit.register(ngrok.terminate)
     localhost_url = "http://localhost:4040/api/tunnels"  # Url with tunnel details
     time.sleep(1)
@@ -70,13 +83,13 @@ def _download_file(url):
     return download_path
 
 
-def start_ngrok(port):
-    ngrok_address = _run_ngrok(port)
+def start_ngrok(port, subdomain=None):
+    ngrok_address = _run_ngrok(port, subdomain)
     print(f" * Running on {ngrok_address}")
     print(f" * Traffic stats available on http://127.0.0.1:4040")
 
 
-def run_with_ngrok(app):
+def run_with_ngrok(app, subdomain = None):
     """
     The provided Flask app will be securely exposed to the public internet via ngrok when run,
     and the its ngrok address will be printed to stdout
@@ -87,7 +100,7 @@ def run_with_ngrok(app):
 
     def new_run(*args, **kwargs):
         port = kwargs.get('port', 5000)
-        thread = Timer(1, start_ngrok, args=(port,))
+        thread = Timer(1, start_ngrok, args=(port, subdomain))
         thread.setDaemon(True)
         thread.start()
         old_run(*args, **kwargs)
